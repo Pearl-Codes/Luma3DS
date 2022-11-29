@@ -1,6 +1,9 @@
 # Luma3DS
 *Noob-proof (N)3DS "Custom Firmware"*
 
+## Why did I create this fork?
+Well, I saw GitHub User [DullPointer](https://github.com/DullPointer) made a fork of Luma3DS From the Luma Team with some extra cool features, but it was missing commits from the Luma3DS Development Team, so I decided to merge those into this! If i figure out how 3DS Modding works, I might update this fork with some cool stuff. For now this has no support and ***I will not provide any support for ANYONE running this fork, nor will the Luma3DS Team. Use at your own risk!***
+
 ### What it is
 **Luma3DS** is a program to patch the system software of (New) Nintendo (2)3DS handheld consoles "on the fly", adding features such as per-game language settings, debugging capabilities for developers, and removing restrictions enforced by Nintendo such as the region lock.
 
