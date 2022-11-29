@@ -32,7 +32,6 @@
 #include "svc/GetSystemInfo.h"
 #include "svc/GetProcessInfo.h"
 #include "svc/GetThreadInfo.h"
-#include "svc/GetCFWInfo.h"
 #include "svc/ConnectToPort.h"
 #include "svc/SendSyncRequest.h"
 #include "svc/Break.h"
@@ -50,31 +49,71 @@
 #include "svc/ControlMemoryUnsafe.h"
 
 void *officialSVCs[0x7E] = {NULL};
+void *alteredSvcTable[0x100] = {NULL};
 
-void signalSvcEntry(u8 *pageEnd)
+static Result BreakHook(UserBreakType breakReason, const void* croInfo, u32 croInfoSize)
 {
-    u32 svcId = (u32) *(u8 *)(pageEnd - 0xB5);
     KProcess *currentProcess = currentCoreContext->objectContext.currentProcess;
 
-    if(svcId == 0xFE)
-        svcId = *(u32 *)(pageEnd - 0x110 + 8 * 4); // r12 ; note: max theortical SVC atm: 0x3FFFFFFF. We don't support catching svcIds >= 0x100 atm either
+    void *funptr = (debugOfProcess(currentProcess) != NULL) ? officialSVCs[0x3C] : (void *)Break;
+    return ((Result (*)(UserBreakType, const void *, u32))funptr)(breakReason, croInfo, croInfoSize);
+}
+
+void buildAlteredSvcTable(void)
+{
+    memcpy(alteredSvcTable, officialSVCs, 4 * 0x7E);
+
+    alteredSvcTable[0x01] = ControlMemoryHookWrapper;
+
+    alteredSvcTable[0x29] = GetHandleInfoHookWrapper;
+    alteredSvcTable[0x2A] = GetSystemInfoHookWrapper;
+    alteredSvcTable[0x2B] = GetProcessInfoHookWrapper;
+    alteredSvcTable[0x2C] = GetThreadInfoHookWrapper;
+    alteredSvcTable[0x2D] = ConnectToPortHookWrapper;
+
+    alteredSvcTable[0x32] = SendSyncRequestHook;
+    alteredSvcTable[0x3C] = BreakHook;
+
+    alteredSvcTable[0x59] = SetGpuProt;
+    alteredSvcTable[0x5A] = SetWifiEnabled;
+
+    alteredSvcTable[0x7B] = Backdoor;
+    alteredSvcTable[0x7C] = KernelSetStateHook;
+
+    // Custom SVCs past that point
+    alteredSvcTable[0x80] = CustomBackdoor;
+
+    alteredSvcTable[0x90] = convertVAToPA;
+    alteredSvcTable[0x91] = flushDataCacheRange;
+    alteredSvcTable[0x92] = flushEntireDataCache;
+    alteredSvcTable[0x93] = invalidateInstructionCacheRange;
+    alteredSvcTable[0x94] = invalidateEntireInstructionCache;
+
+    alteredSvcTable[0xA0] = MapProcessMemoryEx;
+    alteredSvcTable[0xA1] = UnmapProcessMemoryEx;
+    alteredSvcTable[0xA2] = ControlMemoryEx;
+
+    alteredSvcTable[0xB0] = ControlService;
+    alteredSvcTable[0xB1] = CopyHandleWrapper;
+    alteredSvcTable[0xB2] = TranslateHandleWrapper;
+}
+
+void signalSvcEntry(u32 svcId)
+{
+    KProcess *currentProcess = currentCoreContext->objectContext.currentProcess;
 
     // Since DBGEVENT_SYSCALL_ENTRY is non blocking, we'll cheat using EXCEVENT_UNDEFINED_SYSCALL (debug->svcId is fortunately an u16!)
-    if(debugOfProcess(currentProcess) != NULL && shouldSignalSyscallDebugEvent(currentProcess, svcId))
+    if(debugOfProcess(currentProcess) != NULL && svcId != 0xFF && shouldSignalSyscallDebugEvent(currentProcess, svcId))
         SignalDebugEvent(DBGEVENT_OUTPUT_STRING, 0xFFFFFFFE, svcId);
 }
 
-void signalSvcReturn(u8 *pageEnd)
+void signalSvcReturn(u32 svcId)
 {
-    u32 svcId = (u32) *(u8 *)(pageEnd - 0xB5);
     KProcess *currentProcess = currentCoreContext->objectContext.currentProcess;
     u32      flags = KPROCESS_GET_RVALUE(currentProcess, customFlags);
 
-    if(svcId == 0xFE)
-        svcId = *(u32 *)(pageEnd - 0x110 + 8 * 4); // r12 ; note: max theortical SVC atm: 0x1FFFFFFF. We don't support catching svcIds >= 0x100 atm either
-
     // Since DBGEVENT_SYSCALL_RETURN is non blocking, we'll cheat using EXCEVENT_UNDEFINED_SYSCALL (debug->svcId is fortunately an u16!)
-    if(debugOfProcess(currentProcess) != NULL && shouldSignalSyscallDebugEvent(currentProcess, svcId))
+    if(debugOfProcess(currentProcess) != NULL && svcId != 0xFF && shouldSignalSyscallDebugEvent(currentProcess, svcId))
         SignalDebugEvent(DBGEVENT_OUTPUT_STRING, 0xFFFFFFFF, svcId);
 
     // Signal if the memory layout of the process changed
